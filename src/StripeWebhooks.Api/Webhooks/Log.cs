@@ -6,8 +6,14 @@ internal static partial class Log
     [LoggerMessage(Level = LogLevel.Warning, Message = "Rejected webhook: missing {Header} header")]
     public static partial void MissingSignature(this ILogger logger, string header);
 
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Rejected webhook: body larger than {MaxBodyBytes} bytes")]
+    public static partial void BodyTooLarge(this ILogger logger, int maxBodyBytes);
+
     [LoggerMessage(Level = LogLevel.Warning, Message = "Rejected webhook: {Reason}")]
     public static partial void WebhookRejected(this ILogger logger, string reason);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Rejected correctly signed event {EventId}: api_version {ApiVersion} is not compatible with Stripe.net's {ExpectedApiVersion}. Set the endpoint's API version or upgrade Stripe.net; Stripe keeps retrying until then")]
+    public static partial void UnsupportedApiVersion(this ILogger logger, string eventId, string apiVersion, string expectedApiVersion);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Duplicate delivery of {EventId} ({EventType}) acknowledged without reprocessing")]
     public static partial void DuplicateDelivery(this ILogger logger, string eventId, string eventType);
@@ -21,8 +27,8 @@ internal static partial class Log
     [LoggerMessage(Level = LogLevel.Information, Message = "Processed {EventId} ({EventType}): {Outcome}")]
     public static partial void Processed(this ILogger logger, string eventId, string eventType, Data.EventOutcome? outcome);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Attempt {Attempts} for {EventId} failed; it will be retried")]
-    public static partial void AttemptFailed(this ILogger logger, Exception error, int attempts, string eventId);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Attempt {Attempts} for {EventId} failed; retrying in {RetryDelay}")]
+    public static partial void AttemptFailed(this ILogger logger, Exception error, int attempts, string eventId, TimeSpan retryDelay);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Giving up on {EventId} after {Attempts} attempts; replay it manually")]
     public static partial void GaveUp(this ILogger logger, Exception error, string eventId, int attempts);

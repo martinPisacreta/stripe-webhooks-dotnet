@@ -15,8 +15,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # The projects target net8.0. The .NET 8 SDK provides the runtime the tests run on;
-      # the .NET 10 SDK is the one that builds, same as the local setup this was verified with.
+      # The projects target net10.0 and net8.0. The .NET 10 SDK builds both (global.json asks for
+      # 10.0.100 or later); the .NET 8 SDK is installed for its runtime, so the net8.0 tests run on
+      # .NET 8 itself instead of rolling forward.
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: |
@@ -26,6 +27,7 @@ jobs:
       - name: Restore
         run: dotnet restore
 
+      # GitHub Actions sets CI=true, which turns warnings into errors (Directory.Build.props).
       - name: Build
         run: dotnet build --no-restore --configuration Release
 

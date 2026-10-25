@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Threading.Channels;
 using Microsoft.Extensions.Options;
 
@@ -12,6 +13,10 @@ public sealed class EventQueue
 {
     private readonly Channel<string> _channel;
 
+    // Ids waiting in the channel or being processed, so the sweeper does not fill the queue with
+    // copies of work that is already on its way. Holds at most the channel capacity plus one id.
+    private readonly ConcurrentDictionary<string, byte> _queued = new(StringComparer.Ordinal);
+
     public EventQueue(IOptions<StripeWebhookOptions> options)
     {
         _channel = Channel.CreateBounded<string>(new BoundedChannelOptions(options.Value.QueueCapacity)
@@ -24,6 +29,28 @@ public sealed class EventQueue
 
     public ChannelReader<string> Reader => _channel.Reader;
 
-    /// <summary>Never blocks. Returns false when the queue is full; the sweeper picks the row up later.</summary>
-    public bool TryEnqueue(string eventId) => _channel.Writer.TryWrite(eventId);
+    /// <summary>
+    /// Never blocks. Returns true if the id is now queued (or already was), false when the queue is
+    /// full; the row stays Pending and the sweeper offers it again later.
+    /// </summary>
+    public bool TryEnqueue(string eventId)
+    {
+        if (!_queued.TryAdd(eventId, 0))
+        {
+            return true;
+        }
+
+        if (_channel.Writer.TryWrite(eventId))
+        {
+            return true;
+        }
+
+        _queued.TryRemove(eventId, out _);
+        return false;
+    }
+
+    public bool Contains(string eventId) => _queued.ContainsKey(eventId);
+
+    /// <summary>Called by the worker when it is done with an id it read, whatever the outcome.</summary>
+    public void MarkDone(string eventId) => _queued.TryRemove(eventId, out _);
 }

@@ -23,7 +23,12 @@ public sealed class PaymentsDbContext(DbContextOptions<PaymentsDbContext> option
             payment.Property(p => p.PaymentIntentId).HasMaxLength(255);
             payment.Property(p => p.Currency).HasMaxLength(3);
             payment.Property(p => p.Status).HasConversion<string>().HasMaxLength(32);
-            payment.Property(p => p.LastEventId).HasMaxLength(255);
+
+            // Optimistic concurrency: the UPDATE only matches if no other event was applied since this
+            // row was read (WHERE ... AND LastEventId = @original). On a database that lets two workers
+            // interleave (READ COMMITTED), the loser gets DbUpdateConcurrencyException and is retried,
+            // so the stale check cannot be bypassed. SQLite serializes writers, so it never fires there.
+            payment.Property(p => p.LastEventId).HasMaxLength(255).IsConcurrencyToken();
         });
 
         modelBuilder.Entity<ProcessedEvent>(evt =>
@@ -35,7 +40,7 @@ public sealed class PaymentsDbContext(DbContextOptions<PaymentsDbContext> option
             evt.Property(e => e.Status).HasConversion<string>().HasMaxLength(32);
             evt.Property(e => e.Outcome).HasConversion<string>().HasMaxLength(32);
             evt.Property(e => e.LastError).HasMaxLength(1000);
-            evt.HasIndex(e => new { e.Status, e.ReceivedAtUtc });
+            evt.HasIndex(e => new { e.Status, e.NextAttemptAtUtc });
         });
     }
 

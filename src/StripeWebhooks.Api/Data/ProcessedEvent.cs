@@ -1,9 +1,10 @@
 namespace StripeWebhooks.Api.Data;
 
 /// <summary>
-/// One row per Stripe event id. The unique index on <see cref="EventId"/> is the idempotency guard:
-/// the row is inserted before the 200 is returned, so a retry or a concurrent duplicate cannot
-/// create a second row, and the worker applies each row at most once (see EventProcessor).
+/// The inbox: one row per Stripe event id, moving Pending -> Processed | Failed. The unique index on
+/// <see cref="EventId"/> is the idempotency guard: the row is inserted before the 200 is returned, so
+/// a retry or a concurrent duplicate cannot create a second row, and the worker applies each row at
+/// most once (see EventProcessor).
 /// </summary>
 public sealed class ProcessedEvent
 {
@@ -23,11 +24,18 @@ public sealed class ProcessedEvent
 
     public EventOutcome? Outcome { get; set; }
 
+    /// <summary>Failed attempts so far. A row processed on its first try keeps 0.</summary>
     public int Attempts { get; set; }
 
     public string? LastError { get; set; }
 
     public DateTime ReceivedAtUtc { get; set; }
+
+    /// <summary>
+    /// Earliest time the sweeper hands this row to the worker again: the receive time at first, then
+    /// pushed back with exponential backoff after each failed attempt.
+    /// </summary>
+    public DateTime NextAttemptAtUtc { get; set; }
 
     public DateTime? ProcessedAtUtc { get; set; }
 }

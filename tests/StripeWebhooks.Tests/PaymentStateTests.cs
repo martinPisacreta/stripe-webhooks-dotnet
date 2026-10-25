@@ -72,6 +72,42 @@ public sealed class PaymentStateTests(WebhookAppFactory app) : IClassFixture<Web
     }
 
     [Fact]
+    public async Task SameSecondRefundsKeepTheLargerCumulativeAmount()
+    {
+        var pi = StripeEvents.NewId("pi");
+
+        // `created` has one-second resolution, so these two cannot be ordered by it. The full refund
+        // happens to arrive first; the partial snapshot from the same second must not shrink it.
+        await DeliverAsync(StripeEvents.PaymentIntentSucceeded(StripeEvents.NewId("evt"), pi, 2_000, "usd", T));
+        await DeliverAsync(StripeEvents.ChargeRefunded(StripeEvents.NewId("evt"), pi, 2_000, amountRefunded: 2_000, "usd", T + 60));
+        var tie = await DeliverAsync(StripeEvents.ChargeRefunded(StripeEvents.NewId("evt"), pi, 2_000, amountRefunded: 500, "usd", T + 60));
+
+        Assert.Equal(EventOutcome.Applied, tie.Outcome);
+        var payment = await app.FindPaymentAsync(pi);
+        Assert.NotNull(payment);
+        Assert.Equal(2_000, payment.AmountRefunded);
+        Assert.Equal(PaymentStatus.Refunded, payment.Status);
+    }
+
+    [Fact]
+    public async Task SuccessFromTheSameSecondAsAFullRefundDoesNotUndoIt()
+    {
+        var pi = StripeEvents.NewId("pi");
+
+        await DeliverAsync(StripeEvents.ChargeRefunded(StripeEvents.NewId("evt"), pi, 2_000, amountRefunded: 2_000, "usd", T));
+        var tie = await DeliverAsync(StripeEvents.PaymentIntentSucceeded(StripeEvents.NewId("evt"), pi, 2_000, "usd", T));
+
+        // Only strictly older events are stale. A tie is applied, and the success snapshot carries no
+        // refund data, so the refund already recorded stands.
+        Assert.Equal(EventOutcome.Applied, tie.Outcome);
+        var payment = await app.FindPaymentAsync(pi);
+        Assert.NotNull(payment);
+        Assert.Equal(PaymentStatus.Refunded, payment.Status);
+        Assert.Equal(2_000, payment.AmountRefunded);
+        Assert.Equal(2_000, payment.Amount);
+    }
+
+    [Fact]
     public async Task UnknownEventTypeIsAcknowledgedAndLogged()
     {
         var eventId = StripeEvents.NewId("evt");

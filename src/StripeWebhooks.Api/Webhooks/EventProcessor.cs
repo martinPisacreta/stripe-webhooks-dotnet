@@ -8,7 +8,7 @@ namespace StripeWebhooks.Api.Webhooks;
 /// <summary>
 /// Processes one stored event. The worker may see the same event id more than once (the sweeper
 /// re-queues pending rows after a restart or a failure); the conditional claim below makes the
-/// business effect happen exactly once.
+/// change to the local database happen exactly once.
 /// </summary>
 public sealed class EventProcessor(
     PaymentsDbContext db,
@@ -25,6 +25,7 @@ public sealed class EventProcessor(
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
+            // The transaction was rolled back when it was disposed: no claim, no payment change.
             db.ChangeTracker.Clear();
             await RecordFailureAsync(eventId, ex, cancellationToken);
         }
@@ -71,17 +72,21 @@ public sealed class EventProcessor(
             return;
         }
 
+        var settings = options.Value;
         row.Attempts++;
         row.LastError = error.Message.Length > 1000 ? error.Message[..1000] : error.Message;
 
-        if (row.Attempts >= options.Value.MaxAttempts)
+        if (row.Attempts >= settings.MaxAttempts)
         {
+            // Stripe already has its 200 and will not redeliver: this row now needs a manual replay.
             row.Status = EventStatus.Failed;
             logger.GaveUp(error, eventId, row.Attempts);
         }
         else
         {
-            logger.AttemptFailed(error, row.Attempts, eventId);
+            var delay = settings.RetryDelay(row.Attempts);
+            row.NextAttemptAtUtc = clock.GetUtcNow().UtcDateTime + delay;
+            logger.AttemptFailed(error, row.Attempts, eventId, delay);
         }
 
         await db.SaveChangesAsync(cancellationToken);

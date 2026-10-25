@@ -1,10 +1,16 @@
 <Project>
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <!--
+      net10.0 is the current LTS. net8.0 is kept so the code and tests also cover existing .NET 8
+      services; .NET 8 support ends on 2026-11-10, after which net8.0 can simply be dropped here.
+    -->
+    <TargetFrameworks>net10.0;net8.0</TargetFrameworks>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <!-- Pinned, so a newer SDK does not turn its new analyzer rules into surprise build errors. -->
+    <AnalysisLevel>10.0-recommended</AnalysisLevel>
+    <!-- Warnings fail the build in CI (GitHub Actions sets CI=true), not on a reviewer's machine. -->
+    <TreatWarningsAsErrors Condition="'$(CI)' == 'true'">true</TreatWarningsAsErrors>
     <!-- CA1711: "...EventHandler"/"...Queue" are the clearest names here. -->
     <NoWarn>$(NoWarn);CA1711</NoWarn>
     <!-- A new advisory on a transitive package should be visible, not break every build. -->

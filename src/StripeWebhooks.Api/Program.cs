@@ -13,10 +13,14 @@ builder.Services
     .Validate(
         o => o.WebhookSecret.StartsWith("whsec_", StringComparison.Ordinal),
         "Stripe:WebhookSecret must be an endpoint signing secret (whsec_...). Set the Stripe__WebhookSecret environment variable.")
+    .Validate(
+        o => o.SweepInterval > TimeSpan.Zero && o.RetryBaseDelay > TimeSpan.Zero && o.RetryMaxDelay >= o.RetryBaseDelay,
+        "Stripe:SweepInterval and Stripe:RetryBaseDelay must be positive, and Stripe:RetryMaxDelay at least RetryBaseDelay.")
     .ValidateOnStart();
 
-builder.Services.AddDbContext<PaymentsDbContext>((services, db) =>
-    db.UseSqlite(services.GetRequiredService<IConfiguration>().GetConnectionString("Payments")));
+builder.Services.AddDbContext<PaymentsDbContext>((services, db) => db
+    .UseSqlite(services.GetRequiredService<IConfiguration>().GetConnectionString("Payments"))
+    .AddInterceptors(new SqliteBusyTimeout()));
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<EventQueue>();

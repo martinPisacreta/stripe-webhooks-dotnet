@@ -17,6 +17,7 @@ public sealed class IdempotencyTests(WebhookAppFactory app) : IClassFixture<Webh
 
         // A Stripe retry carries the same body with a fresh signature timestamp.
         using var retry = await app.PostSignedAsync(json);
+        await app.DrainAsync(); // Anything the retry might have enqueued has been processed by now.
 
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
         Assert.Equal("accepted", await first.ReadAckStatusAsync());
@@ -29,28 +30,35 @@ public sealed class IdempotencyTests(WebhookAppFactory app) : IClassFixture<Webh
     [Fact]
     public async Task ConcurrentDuplicatesAreProcessedOnce()
     {
+        // A check-then-insert race does not lose every time, so give it many chances to show up.
+        const int rounds = 10;
         const int deliveries = 25;
-        var eventId = StripeEvents.NewId("evt");
-        var json = StripeEvents.PaymentIntentSucceeded(eventId, StripeEvents.NewId("pi"), 2_000, "usd", StripeEvents.BaseCreated);
 
-        // Release every request at once so the inserts race each other.
-        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var requests = Enumerable.Range(0, deliveries).Select(async _ =>
+        for (var round = 0; round < rounds; round++)
         {
-            await start.Task;
-            using var response = await app.PostSignedAsync(json);
-            return (response.StatusCode, Ack: await response.ReadAckStatusAsync());
-        }).ToArray();
+            var eventId = StripeEvents.NewId("evt");
+            var json = StripeEvents.PaymentIntentSucceeded(eventId, StripeEvents.NewId("pi"), 2_000, "usd", StripeEvents.BaseCreated);
 
-        start.SetResult();
-        var results = await Task.WhenAll(requests);
-        await app.WaitUntilHandledAsync(eventId);
+            // Release every request at once so the inserts race each other.
+            var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var requests = Enumerable.Range(0, deliveries).Select(async _ =>
+            {
+                await start.Task;
+                using var response = await app.PostSignedAsync(json);
+                return (response.StatusCode, Ack: await response.ReadAckStatusAsync());
+            }).ToArray();
 
-        Assert.All(results, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
-        Assert.Single(results, r => r.Ack == "accepted");
-        Assert.Equal(deliveries - 1, results.Count(r => r.Ack == "duplicate"));
-        Assert.Equal(1, await app.CountEventRowsAsync(eventId));
-        Assert.Equal(1, app.HandlerCalls.For(eventId));
+            start.SetResult();
+            var results = await Task.WhenAll(requests);
+            await app.WaitUntilHandledAsync(eventId);
+            await app.DrainAsync();
+
+            Assert.All(results, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
+            Assert.Single(results, r => r.Ack == "accepted");
+            Assert.Equal(deliveries - 1, results.Count(r => r.Ack == "duplicate"));
+            Assert.Equal(1, await app.CountEventRowsAsync(eventId));
+            Assert.Equal(1, app.HandlerCalls.For(eventId));
+        }
     }
 
     [Fact]
@@ -70,34 +78,29 @@ public sealed class IdempotencyTests(WebhookAppFactory app) : IClassFixture<Webh
     }
 
     [Fact]
-    public async Task AcknowledgedButUnprocessedEventIsRecoveredBySweeper()
+    public async Task ConcurrentClaimsOfOnePendingEventApplyItOnce()
     {
         var eventId = StripeEvents.NewId("evt");
         var paymentIntentId = StripeEvents.NewId("pi");
-        var json = StripeEvents.PaymentIntentSucceeded(eventId, paymentIntentId, 4_200, "eur", StripeEvents.BaseCreated);
+        var json = StripeEvents.PaymentIntentSucceeded(eventId, paymentIntentId, 2_000, "usd", StripeEvents.BaseCreated);
 
-        // Simulate a crash after the 200: the row is stored as Pending but never reached the queue.
-        await app.QueryAsync(async db =>
+        // Pending and not due yet, so the sweeper leaves it alone and only the processors below race.
+        await app.InsertPendingAsync(eventId, json, nextAttemptAtUtc: DateTime.UtcNow.AddHours(1));
+
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var claims = Enumerable.Range(0, 10).Select(async _ =>
         {
-            db.ProcessedEvents.Add(new ProcessedEvent
-            {
-                EventId = eventId,
-                Type = "payment_intent.succeeded",
-                EventCreated = StripeEvents.BaseCreated,
-                Payload = json,
-                Status = EventStatus.Pending,
-                ReceivedAtUtc = DateTime.UtcNow.AddMinutes(-5),
-            });
-            return await db.SaveChangesAsync();
-        });
+            await start.Task;
+            await app.ProcessAgainAsync(eventId);
+        }).ToArray();
+        start.SetResult();
+        await Task.WhenAll(claims);
 
-        var processed = await app.WaitUntilHandledAsync(eventId);
-
-        Assert.Equal(EventOutcome.Applied, processed.Outcome);
+        var row = await app.FindEventAsync(eventId);
+        Assert.NotNull(row);
+        Assert.Equal(EventStatus.Processed, row.Status);
+        Assert.Equal(EventOutcome.Applied, row.Outcome);
         Assert.Equal(1, app.HandlerCalls.For(eventId));
-        var payment = await app.FindPaymentAsync(paymentIntentId);
-        Assert.NotNull(payment);
-        Assert.Equal(4_200, payment.Amount);
-        Assert.Equal("eur", payment.Currency);
+        Assert.NotNull(await app.FindPaymentAsync(paymentIntentId));
     }
 }

@@ -23,6 +23,10 @@ public sealed class EventWorker(
                     // Never let one event stop the worker; the row stays pending and is retried.
                     logger.WorkerError(ex, eventId);
                 }
+                finally
+                {
+                    queue.MarkDone(eventId);
+                }
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

@@ -36,12 +36,13 @@ public static class StripeEvents
             ["status"] = "succeeded",
         });
 
-    public static string Event(string eventId, string type, long created, JsonObject dataObject) =>
+    /// <param name="apiVersion">Defaults to the version this Stripe.net release is pinned to.</param>
+    public static string Event(string eventId, string type, long created, JsonObject dataObject, string? apiVersion = null) =>
         new JsonObject
         {
             ["id"] = eventId,
             ["object"] = "event",
-            ["api_version"] = StripeConfiguration.ApiVersion,
+            ["api_version"] = apiVersion ?? StripeConfiguration.ApiVersion,
             ["created"] = created,
             ["livemode"] = false,
             ["pending_webhooks"] = 1,

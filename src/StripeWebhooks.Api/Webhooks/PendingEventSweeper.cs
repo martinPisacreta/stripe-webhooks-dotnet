@@ -5,9 +5,9 @@ using StripeWebhooks.Api.Data;
 namespace StripeWebhooks.Api.Webhooks;
 
 /// <summary>
-/// Re-queues events that were acknowledged but not processed: on startup (crash or restart with
-/// items still in memory), when the queue was full, and after a failed attempt. This is what
-/// turns the in-memory queue into at-least-once delivery to <see cref="EventProcessor"/>.
+/// Offers due Pending rows to the worker: on startup (crash or restart with items still in memory),
+/// when the queue was full, and when a failed attempt's backoff has elapsed. This is what turns the
+/// in-memory queue into at-least-once delivery to <see cref="EventProcessor"/>.
 /// </summary>
 public sealed class PendingEventSweeper(
     EventQueue queue,
@@ -20,18 +20,17 @@ public sealed class PendingEventSweeper(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var interval = options.Value.SweepInterval;
+        // The first sweep recovers what a crash or restart left behind. Requests can already be arriving,
+        // so the same id may be offered by the receiver and by the sweeper: EventQueue keeps one copy,
+        // and the claim in EventProcessor absorbs any duplicate that still gets through.
+        await SweepAsync(stoppingToken);
 
-        // On startup everything pending is fair game: nothing can be in flight yet.
-        await SweepAsync(receivedBefore: DateTime.MaxValue, stoppingToken);
-
-        using var timer = new PeriodicTimer(interval, clock);
+        using var timer = new PeriodicTimer(options.Value.SweepInterval, clock);
         try
         {
             while (await timer.WaitForNextTickAsync(stoppingToken))
             {
-                // Skip rows younger than one interval: they are most likely still in the queue.
-                await SweepAsync(clock.GetUtcNow().UtcDateTime - interval, stoppingToken);
+                await SweepAsync(stoppingToken);
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -39,22 +38,39 @@ public sealed class PendingEventSweeper(
         }
     }
 
-    private async Task SweepAsync(DateTime receivedBefore, CancellationToken cancellationToken)
+    private async Task SweepAsync(CancellationToken cancellationToken)
     {
         try
         {
             await using var scope = scopeFactory.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<PaymentsDbContext>();
+            var now = clock.GetUtcNow().UtcDateTime;
 
-            var pending = await db.ProcessedEvents
+            var due = await db.ProcessedEvents
                 .AsNoTracking()
-                .Where(e => e.Status == EventStatus.Pending && e.ReceivedAtUtc < receivedBefore)
-                .OrderBy(e => e.Id)
+                .Where(e => e.Status == EventStatus.Pending && e.NextAttemptAtUtc <= now)
+                .OrderBy(e => e.NextAttemptAtUtc)
+                .ThenBy(e => e.Id)
                 .Select(e => e.EventId)
                 .Take(BatchSize)
                 .ToListAsync(cancellationToken);
 
-            var requeued = pending.TakeWhile(queue.TryEnqueue).Count();
+            var requeued = 0;
+            foreach (var eventId in due)
+            {
+                if (queue.Contains(eventId))
+                {
+                    continue; // Still waiting in the channel, or being processed right now.
+                }
+
+                if (!queue.TryEnqueue(eventId))
+                {
+                    break; // Full: the rest waits for the next tick.
+                }
+
+                requeued++;
+            }
+
             if (requeued > 0)
             {
                 logger.Requeued(requeued);
