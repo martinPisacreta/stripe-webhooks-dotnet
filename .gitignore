@@ -1,0 +1,39 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+artifacts/
+TestResults/
+*.trx
+coverage*.xml
+coverage*.json
+
+# IDEs
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userprefs
+*.DotSettings.user
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/packages/
+
+# Local SQLite databases created by the sample
+*.db
+*.db-shm
+*.db-wal
+
+# Secrets: never commit keys. Use environment variables or `dotnet user-secrets`.
+.env
+.env.*
+appsettings.*.local.json
+secrets.json
+
+# OS
+.DS_Store
+Thumbs.db
