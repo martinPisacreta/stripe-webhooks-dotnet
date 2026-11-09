@@ -23,6 +23,7 @@ prevent that, within the limits listed below, with tests for the main failure mo
 | The worker never applies an event twice | Conditional claim in the same transaction as the update | `WorkerSeeingTheSameEventAgainDoesNotReapplyIt`, `ConcurrentClaimsOfOnePendingEventApplyItOnce` |
 | A handler error is retried, never half-applied | Rollback undoes claim and payment change; exponential backoff | `FailingHandlerIsRolledBackAndRetriedUntilItSucceeds`, `HandlerThatKeepsFailingEndsFailedAfterMaxAttempts`, `DefaultBackoffGrowsFourfoldAndIsCapped` |
 | An acknowledged event survives a crash | Event stored before the 200; pending rows re-queued | `AcknowledgedButUnprocessedEventIsRecoveredBySweeper` |
+| A storage failure is not acknowledged | A database error while recording the event returns 503 and logs an error; Stripe retries | `StorageFailureIsNotAcknowledgedAndTheRetryIsAccepted` |
 | A full queue still acknowledges at once | `TryWrite` never blocks; the sweeper picks the row up | `FullQueueStillAcknowledgesAndEveryEventIsProcessedOnce` |
 | Late events don't overwrite newer state | `event.created` compared per payment | `OutOfOrderEventIsIgnored`, `OlderRefundSnapshotDoesNotOverwriteNewerOne`, `SameSecondRefundsKeepTheLargerCumulativeAmount`, `SuccessFromTheSameSecondAsAFullRefundDoesNotUndoIt` |
 | Refunds update the payment | `charge.refunded` sets cumulative `amount_refunded` | `RefundUpdatesPaymentState` |
@@ -39,6 +40,7 @@ prevent that, within the limits listed below, with tests for the main failure mo
    |                       signed, other API release ------> 400 unsupported api_version
    |                    3. INSERT INTO ProcessedEvents ... --------->  ProcessedEvents (inbox)
    |                       ON CONFLICT (EventId) DO NOTHING            UNIQUE (EventId)
+   |                       database error ------------------> 503 (Stripe retries)
    |                       0 rows (retry or duplicate) -----> 200      Pending -> Processed
    |                                                    {"status":"duplicate"}   | Failed
    |                    4. TryWrite(event id) to a bounded Channel

@@ -15,6 +15,9 @@ internal static partial class Log
     [LoggerMessage(Level = LogLevel.Error, Message = "Rejected correctly signed event {EventId}: api_version {ApiVersion} is not compatible with Stripe.net's {ExpectedApiVersion}. Set the endpoint's API version or upgrade Stripe.net; Stripe keeps retrying until then")]
     public static partial void UnsupportedApiVersion(this ILogger logger, string eventId, string apiVersion, string expectedApiVersion);
 
+    [LoggerMessage(Level = LogLevel.Error, Message = "Could not record {EventId}; answered 503 so Stripe retries the delivery")]
+    public static partial void AcceptanceFailed(this ILogger logger, Exception error, string eventId);
+
     [LoggerMessage(Level = LogLevel.Information, Message = "Duplicate delivery of {EventId} ({EventType}) acknowledged without reprocessing")]
     public static partial void DuplicateDelivery(this ILogger logger, string eventId, string eventType);
 

@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Text;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
@@ -79,13 +80,23 @@ public sealed class WebhookReceiver(
 
         // Insert first, never "SELECT then INSERT": the unique index on EventId decides atomically which
         // delivery wins, including concurrent ones. A losing delivery affects 0 rows.
-        var inserted = await db.Database.ExecuteSqlInterpolatedAsync(
-            $"""
-            INSERT INTO ProcessedEvents (EventId, Type, EventCreated, Payload, Status, Attempts, ReceivedAtUtc, NextAttemptAtUtc)
-            VALUES ({stripeEvent.Id}, {stripeEvent.Type}, {created}, {json}, {nameof(EventStatus.Pending)}, 0, {receivedAt}, {receivedAt})
-            ON CONFLICT (EventId) DO NOTHING
-            """,
-            cancellationToken);
+        int inserted;
+        try
+        {
+            inserted = await db.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                INSERT INTO ProcessedEvents (EventId, Type, EventCreated, Payload, Status, Attempts, ReceivedAtUtc, NextAttemptAtUtc)
+                VALUES ({stripeEvent.Id}, {stripeEvent.Type}, {created}, {json}, {nameof(EventStatus.Pending)}, 0, {receivedAt}, {receivedAt})
+                ON CONFLICT (EventId) DO NOTHING
+                """,
+                cancellationToken);
+        }
+        catch (DbException ex)
+        {
+            // Not acknowledged: Stripe retries any non-2xx, and 503 says the failure is on our side, not in the request.
+            logger.AcceptanceFailed(ex, stripeEvent.Id);
+            return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
 
         if (inserted == 0)
         {
