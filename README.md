@@ -207,6 +207,19 @@ src/StripeWebhooks.Api/
 tests/StripeWebhooks.Tests/       xUnit + WebApplicationFactory
 ```
 
+## Diagram: verifying a payment webhook
+
+A one-page flow of the checks every payment webhook needs before it credits anything: signature,
+time window, idempotency on the event ID, and which status code makes the provider retry. It shows
+the simpler synchronous variant (credit and ID stored in one transaction, then 2xx); this repo splits
+that into "store and acknowledge" plus a background worker, as drawn in [How it works](#how-it-works).
+
+![Verify a payment webhook](docs/diagrams/verify-payment-webhook.svg)
+
+Editable SVG: [English](docs/diagrams/verify-payment-webhook.svg) ·
+[Spanish](docs/diagrams/verificar-webhook-pagos.svg). Want one like this for a procedure of yours?
+Open a [diagram request](../../issues/new?template=diagram-request.md) (USD 30 per diagram).
+
 ## License
 
 MIT, see [LICENSE](LICENSE).

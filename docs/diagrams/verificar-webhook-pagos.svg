@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1000" viewBox="0 0 1500 1000" role="img" aria-labelledby="title desc">
+  <title id="title">Verificar un webhook antes de acreditar un pago</title>
+  <desc id="desc">Verificar firma y ventana temporal. Si el evento ya fue procesado, responder 2xx. Si es nuevo, guardar el identificador y la acreditación en una misma transacción. Ante un fallo temporal, responder 5xx y permitir el reintento con el mismo identificador.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#334155"/></marker>
+    <style>
+      text { font-family: Arial, Helvetica, sans-serif; font-size: 24px; fill: #172033; }
+      .heading { font-size: 38px; font-weight: 700; }
+      .sub { font-size: 22px; fill: #475569; }
+      .strong { font-weight: 700; }
+      .box { fill: #f0f6ff; stroke: #285ea8; stroke-width: 3; }
+      .decision { fill: #fff9e8; stroke: #956409; stroke-width: 3; }
+      .reject { fill: #fff1f2; stroke: #b4233b; stroke-width: 3; }
+      .success { fill: #ecfdf3; stroke: #217449; stroke-width: 3; }
+      .retry { fill: #fff7ed; stroke: #a55013; stroke-width: 3; }
+      .flow { fill: none; stroke: #334155; stroke-width: 3; stroke-linejoin: round; marker-end: url(#arrow); }
+      .label { font-size: 22px; font-weight: 700; paint-order: stroke; stroke: white; stroke-width: 7px; stroke-linejoin: round; }
+    </style>
+  </defs>
+  <rect width="1500" height="1000" fill="white"/>
+  <text x="70" y="52" class="heading">Verificar un webhook de pagos</text>
+  <text x="70" y="87" class="sub">Muestra de proceso · adaptar la firma y la ventana temporal al proveedor</text>
+
+  <g aria-label="Conexiones y ramas">
+    <path class="flow" d="M750 200 V225"/>
+    <path class="flow" d="M750 355 V390"/>
+    <text x="775" y="380" class="label">Sí</text>
+    <path class="flow" d="M550 290 H235 V390"/>
+    <text x="460" y="275" class="label">No</text>
+    <path class="flow" d="M550 455 H400"/>
+    <text x="455" y="440" class="label">No</text>
+    <path class="flow" d="M750 520 V555"/>
+    <text x="775" y="545" class="label">Sí</text>
+    <path class="flow" d="M950 620 H1270 V750"/>
+    <text x="1000" y="605" class="label">Sí · sin repetir el efecto</text>
+    <path class="flow" d="M750 685 V750"/>
+    <text x="775" y="725" class="label">No</text>
+    <path class="flow" d="M960 795 H1120"/>
+    <text x="980" y="778" class="label">Éxito</text>
+    <path class="flow" d="M540 795 H400"/>
+    <text x="432" y="778" class="label">Falla</text>
+    <path class="flow" d="M235 865 V900 H35 V110 H500 V165 H540"/>
+    <text x="70" y="932" class="sub">Reintento del proveedor: mismo ID de evento; se vuelve a verificar la solicitud.</text>
+  </g>
+
+  <g text-anchor="middle">
+    <rect x="540" y="130" width="420" height="70" rx="12" class="box"/>
+    <text x="750" y="159" class="strong">Recibir el webhook</text>
+    <text x="750" y="187" class="sub">Conservar el cuerpo original</text>
+
+    <path d="M750 225 L950 290 L750 355 L550 290 Z" class="decision"/>
+    <text x="750" y="298" class="strong">¿Firma válida?</text>
+
+    <path d="M750 390 L950 455 L750 520 L550 455 Z" class="decision"/>
+    <text x="750" y="448"><tspan x="750" class="strong">¿Dentro de la</tspan><tspan x="750" dy="28" class="strong">ventana de tiempo?</tspan></text>
+
+    <path d="M750 555 L950 620 L750 685 L550 620 Z" class="decision"/>
+    <text x="750" y="613"><tspan x="750" class="strong">¿Evento ya</tspan><tspan x="750" dy="28" class="strong">procesado?</tspan></text>
+
+    <rect x="70" y="390" width="330" height="115" rx="12" class="reject"/>
+    <text x="235" y="425" class="strong">Rechazar · 4xx</text>
+    <text x="235" y="458">Sin acreditar el pago</text>
+    <text x="235" y="489" class="sub">Revisar firma o fecha</text>
+
+    <rect x="540" y="750" width="420" height="90" rx="12" class="box"/>
+    <text x="750" y="778" class="strong">Acreditar una sola vez</text>
+    <text x="750" y="805" class="sub">ID único + efecto del pago</text>
+    <text x="750" y="830" class="sub">en la misma transacción</text>
+
+    <rect x="1120" y="750" width="300" height="90" rx="12" class="success"/>
+    <text x="1270" y="788" class="strong">Responder 2xx</text>
+    <text x="1270" y="819" class="sub">Confirmar recepción</text>
+
+    <rect x="70" y="750" width="330" height="115" rx="12" class="retry"/>
+    <text x="235" y="783" class="strong">Falla temporal · 5xx</text>
+    <text x="235" y="815" class="sub">No marcar como procesado</text>
+    <text x="235" y="846" class="sub">Permitir el reintento</text>
+  </g>
+
+  <text x="70" y="970" class="sub">Idempotencia: la restricción única del ID también debe cubrir entregas simultáneas.</text>
+</svg>
